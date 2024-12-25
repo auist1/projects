@@ -1,18 +1,20 @@
-﻿
--- What is the overall revenue of the company?
 
-SELECT ROUND(SUM(od.UnitPrice * od.Quantity * (1 - od.Discount)),0) as Total_Sales  
-FROM [Order Details] od
+-- What is the overall revenue of the company?
+CREATE VIEW OrderDetailsView AS 
+SELECT OrderID, ProductId,UnitPrice,Quantity,Discount,ROUND(UnitPrice*Quantity*(1-Discount),2) AS TotalRevenue FROM Order_Details
+
+SELECT SUM(TotalRevenue) as Total_Sales  
+FROM OrderDetailsView
 
 -- What is the total quantity of sales?
 
-SELECT ROUND(SUM(od.Quantity),0) as Total_Sales  
-FROM [Order Details] od
+SELECT SUM(Quantity) as Total_Sales  
+FROM OrderDetailsView
 
 -- What is the overall unit price?
 
-SELECT ROUND(SUM(od.UnitPrice * od.Quantity * (1 - od.Discount))/SUM(od.Quantity),2) AS Unit_Price
-FROM [Order Details] od
+SELECT ROUND(SUM(TotalRevenue)/SUM(Quantity),2) AS Unit_Price
+FROM OrderDetailsView
 
 -- What is the total number of customers of the company?
 
@@ -26,8 +28,8 @@ FROM Customers
 
 -- How much is the annual sales of the firm?
 
-SELECT YEAR(OrderDate) as Years, ROUND(SUM(od.UnitPrice * od.Quantity * (1 - od.Discount)),0) as Total_Sales 
-FROM [Order Details] od
+SELECT YEAR(OrderDate) as Years, SUM(TotalRevenue) as TotalSales 
+FROM OrderDetailsView od
 JOIN Orders o ON od.OrderID=o.OrderID
 JOIN Customers c ON c.CustomerID=o.CustomerID
 GROUP BY YEAR(OrderDate)
@@ -36,10 +38,10 @@ ORDER BY Years
 -- What are the annual revenues of the company for each category?
 
 SELECT c.CategoryName, 
-ROUND(SUM(CASE WHEN YEAR(o.OrderDate)=1996 THEN od.UnitPrice * od.Quantity * (1-od.Discount) END),0) AS '1996',
-ROUND(SUM(CASE WHEN YEAR(o.OrderDate)=1997 THEN od.UnitPrice * od.Quantity * (1-od.Discount) END),0) AS '1997',
-ROUND(SUM(CASE WHEN YEAR(o.OrderDate)=1998 THEN od.UnitPrice * od.Quantity * (1-od.Discount) END),0) AS '1998'
-FROM [Order Details] od
+ROUND(SUM(CASE WHEN YEAR(o.OrderDate)=1996 THEN TotalRevenue END),0) AS '1996',
+ROUND(SUM(CASE WHEN YEAR(o.OrderDate)=1997 THEN TotalRevenue END),0) AS '1997',
+ROUND(SUM(CASE WHEN YEAR(o.OrderDate)=1998 THEN TotalRevenue END),0) AS '1998'
+FROM OrderDetailsView od
 JOIN Products p ON od.ProductID=p.ProductID
 JOIN Categories c ON c.CategoryID=p.CategoryID
 JOIN Orders o ON od.OrderID=o.OrderID
@@ -52,9 +54,9 @@ ORDER BY CategoryName
 SELECT 
     ca.CategoryName,
     YEAR(o.OrderDate) AS SalesYear,
-    ROUND(SUM(od.UnitPrice * od.Quantity * (1 - od.Discount)),0) AS TotalRevenue
+    SUM(TotalRevenue) AS TotalRevenue
 FROM 
-    [Order Details] od
+    OrderDetailsView od
 JOIN 
     Orders o ON od.OrderID = o.OrderID
 JOIN 
@@ -70,43 +72,44 @@ ORDER BY CategoryName, SalesYear
 -- List TOP 3 categories in terms of sales revenue. 
 
 WITH TopCategories AS (
-SELECT c.CategoryName, YEAR(o.OrderDate) as Years, ROUND(SUM(od.UnitPrice * od.Quantity * (1-od.Discount)),0) as Total_Sales  
-FROM [Order Details] od
+SELECT c.CategoryName, YEAR(o.OrderDate) as Years, SUM(TotalRevenue) as Total_Revenue  
+FROM OrderDetailsView od
 JOIN Products p ON od.ProductID=p.ProductID
 JOIN Categories C on c.CategoryID=p.CategoryID
 JOIN Orders o ON o.OrderID=od.OrderID
 GROUP By c.CategoryName, YEAR(o.OrderDate)
 )
-SELECT TOP 3 CategoryName, SUM(Total_Sales) AS TotalSalesPerCategory 
+SELECT TOP 3 CategoryName, SUM(Total_Revenue) AS TotalSalesPerCategory 
 FROM TopCategories
 GROUP BY CategoryName
 ORDER BY TotalSalesPerCategory DESC
 
 -- List the star products of each category in terms of sales revenues. Star products are the products that are sold most in each category. 
-
-WITH TopCategories AS (
+WITH AllProducts AS (
     SELECT 
         c.CategoryName,
         p.ProductName,
-        ROUND(SUM(od.UnitPrice * od.Quantity * (1 - od.Discount)), 0) AS Total_Sales  
-    FROM [Order Details] od
+        SUM(TotalRevenue) AS Total_Revenue 
+    FROM OrderDetailsView od
     JOIN Products p ON od.ProductID = p.ProductID
     JOIN Categories c ON c.CategoryID = p.CategoryID
     JOIN Orders o ON o.OrderID = od.OrderID
     GROUP BY c.CategoryName, p.ProductName
-)
-SELECT CategoryName, ProductName, SUM(Total_Sales) AS TotalSales
-FROM ( 
-    SELECT
+),
+RankedProducts AS (
+	SELECT 
         CategoryName,
-        ProductName, 
-        Total_Sales,
-        RANK() OVER(PARTITION BY CategoryName ORDER BY Total_Sales DESC) AS TopSalesperCategory
-    FROM TopCategories
-) AS TopSales
-WHERE TopSalesperCategory = 1
-GROUP BY CategoryName, ProductName
-ORDER BY ProductName;
+        ProductName,
+        Total_Revenue,
+		RANK() OVER(PARTITION BY CategoryName ORDER BY Total_Revenue DESC) AS Ranking
+	FROM AllProducts
+)
+SELECT 
+	CategoryName,
+	ProductName,
+	Total_Revenue
+FROM RankedProducts
+WHERE Ranking=1
 
 -- List the proportion of the star products in each category in the sales of related category. 
 
@@ -114,8 +117,8 @@ WITH TopCategories AS (
     SELECT 
         c.CategoryName,
         p.ProductName,
-        ROUND(SUM(od.UnitPrice * od.Quantity * (1 - od.Discount)), 0) AS Total_Sales  
-    FROM [Order Details] od
+        SUM(TotalRevenue) AS Total_Sales  
+    FROM OrderDetailsView od
     JOIN Products p ON od.ProductID = p.ProductID
     JOIN Categories c ON c.CategoryID = p.CategoryID
     JOIN Orders o ON o.OrderID = od.OrderID
@@ -156,45 +159,46 @@ ORDER BY CountofCustomers DESC
 
 -- Calculate the revenues from each county.
 
-SELECT c.Country, ROUND(SUM(od.UnitPrice * od.Quantity * (1-od.Discount)),0) as TotalSales 
+SELECT c.Country, SUM(TotalRevenue) as TotalRevenue
 FROM Customers c
 JOIN Orders o ON o.CustomerID=c.CustomerID
-JOIN [Order Details] od ON od.OrderID=o.OrderID
+JOIN OrderDetailsView od ON od.OrderID=o.OrderID
 GROUP BY c.Country
-ORDER BY TotalSales DESC
+ORDER BY TotalRevenue DESC
 
 -- What are the best-selling products in the relevant countries and how much revenue has been generated from these products?
 
-SELECT Country, ProductName, Quantity, TotalSales
-FROM (
-    SELECT c.Country, 
-           p.ProductName, 
-           SUM(od.Quantity) as Quantity, 
-           ROUND(SUM(od.UnitPrice * od.Quantity * (1 - od.Discount)), 0) as TotalSales,
-           RANK() OVER (PARTITION BY c.Country ORDER BY ROUND(SUM(od.UnitPrice * od.Quantity * (1 - od.Discount)), 0) DESC) as SalesRank
-    FROM Customers c
-    JOIN Orders o ON o.CustomerID = c.CustomerID
-    JOIN [Order Details] od ON od.OrderID = o.OrderID
-    JOIN Products p ON p.ProductID = od.ProductID
-    GROUP BY c.Country, p.ProductName
-) AS CountryProductSales
-WHERE SalesRank = 1
-ORDER BY TotalSales DESC;
+WITH Ranked AS (
+SELECT ShipCountry,ProductName, SUM(TotalRevenue) AS TotalRevenue,
+	RANK()OVER(PARTITION BY ShipCountry ORDER BY TotalRevenue DESC) AS Ranking
+FROM Orders o
+LEFT JOIN OrderDetailsView od 
+ON od.OrderID=o.OrderID
+LEFT JOIN Products p 
+ON od.ProductId=p.ProductID
+GROUP BY ShipCountry, ProductName,TotalRevenue
+)
+SELECT 
+ShipCountry,ProductName,SUM(TotalRevenue) AS TotalRevenue
+FROM Ranked
+Where Ranking=1
+GROUP BY ShipCountry,ProductName
+ORDER BY ShipCountry
 
 --List the products that their total sales revenue is below 5.000 USD.
 
-SELECT p.ProductName, ROUND(SUM(od.UnitPrice * od.Quantity * (1 - od.Discount)), 0) as TotalSales 
-FROM [Order Details] od 
+SELECT p.ProductName, SUM(TotalRevenue) AS TotalRevenue 
+FROM OrderDetailsView od 
 JOIN Products p ON od.ProductID=p.ProductID
 GROUP BY p.ProductName
-HAVING ROUND(SUM(od.UnitPrice * od.Quantity * (1 - od.Discount)), 0)<5000
-ORDER BY TotalSales 
+HAVING SUM(TotalRevenue)<5000
+ORDER BY TotalRevenue
 
 -- Which products have the highest and lowest average prices?
 
 SELECT * FROM (
     SELECT TOP 1 p.ProductName, ROUND(AVG(od.UnitPrice), 0) as AveragePrices
-    FROM [Order Details] od
+    FROM OrderDetailsView od
     JOIN Products p ON p.ProductID = od.ProductID
     GROUP BY p.ProductName
     ORDER BY AveragePrices DESC
@@ -202,7 +206,7 @@ SELECT * FROM (
 UNION
 SELECT * FROM (
     SELECT TOP 1 p.ProductName, ROUND(AVG(od.UnitPrice), 0) as AveragePrices
-    FROM [Order Details] od
+    FROM OrderDetailsView od
     JOIN Products p ON p.ProductID = od.ProductID
     GROUP BY p.ProductName
     ORDER BY AveragePrices ASC
@@ -220,7 +224,7 @@ SELECT
         2
     ) AS Changing
 FROM Products p
-JOIN [Order Details] od ON od.ProductID = p.ProductID
+JOIN OrderDetailsView od ON od.ProductID = p.ProductID
 JOIN Orders o ON o.OrderID = od.OrderID
 WHERE YEAR(o.OrderDate) IN (1996, 1998)
 GROUP BY p.ProductName
@@ -248,7 +252,7 @@ ORDER BY Delay
 
 SELECT p.ProductName, AVG(DATEDIFF(DAY, RequiredDate, ShippedDate)) as Delay
 FROM Orders o
-JOIN [Order Details] od ON od.OrderID=o.OrderID
+JOIN OrderDetailsView od ON od.OrderID=o.OrderID
 JOIN Products p ON p.ProductID=od.ProductID
 GROUP BY p.ProductName
 
@@ -274,7 +278,7 @@ SELECT e.FirstName + ' ' + e.LastName as EmployeeName,
 SUM(od.Quantity) AS QuantitySold
 FROM Employees e
 JOIN Orders o ON e.EmployeeID=o.EmployeeID
-JOIN [Order Details] od ON od.OrderID=o.OrderID
+JOIN OrderDetailsView od ON od.OrderID=o.OrderID
 GROUP BY e.FirstName + ' ' + e.LastName
 ORDER BY QuantitySold DESC
 
@@ -287,7 +291,7 @@ SELECT
     SUM(CASE WHEN YEAR(o.OrderDate) = 1998 THEN od.Quantity ELSE 0 END) AS Soldin1998
 FROM Employees e
 JOIN Orders o ON e.EmployeeID = o.EmployeeID
-JOIN [Order Details] od ON od.OrderID = o.OrderID
+JOIN OrderDetailsView od ON od.OrderID = o.OrderID
 GROUP BY e.FirstName + ' ' + e.LastName;
 
 -- What is my freight expense? List them company by company. Does it change drastically among years?
@@ -306,7 +310,7 @@ SELECT c.CategoryName,
 ROUND(AVG(CASE WHEN YEAR(o.OrderDate)=1996 THEN od.UnitPrice  ELSE 0 END),0) AS '1996',
 ROUND(AVG(CASE WHEN YEAR(o.OrderDate)=1997 THEN od.UnitPrice  ELSE 0 END),0) AS '1997',
 ROUND(AVG(CASE WHEN YEAR(o.OrderDate)=1998 THEN od.UnitPrice  ELSE 0 END),0) AS '1998'
-FROM [Order Details] od
+FROM OrderDetailsView od
 JOIN Products p ON p.ProductID=od.ProductID
 JOIN Categories c ON c.CategoryID=p.CategoryID
 JOIN Orders o ON o.OrderID=od.OrderID
@@ -318,7 +322,7 @@ SELECT c.CategoryName,
 SUM(CASE WHEN YEAR(o.OrderDate)=1996 THEN od.Quantity  ELSE 0 END) AS '1996',
 SUM(CASE WHEN YEAR(o.OrderDate)=1997 THEN od.Quantity  ELSE 0 END) AS '1997',
 SUM(CASE WHEN YEAR(o.OrderDate)=1998 THEN od.Quantity  ELSE 0 END) AS '1998'
-FROM [Order Details] od
+FROM OrderDetailsView od
 JOIN Products p ON p.ProductID=od.ProductID
 JOIN Categories c ON c.CategoryID=p.CategoryID
 JOIN Orders o ON o.OrderID=od.OrderID
@@ -326,8 +330,8 @@ GROUP BY c.CategoryName
 
 --List the Top 5 orders in terms of their monetary value. 
 
-SELECT TOP 5 o.OrderID, ROUND(SUM(od.UnitPrice * od.Quantity * (1-od.Discount)),0) as TotalSales
+SELECT TOP 5 o.OrderID, SUM(TotalRevenue) as TotalRevenue
 FROM Orders o
-JOIN [Order Details] od ON o.OrderID=od.OrderID
+JOIN OrderDetailsView od ON o.OrderID=od.OrderID
 GROUP BY o.OrderID
-ORDER BY TotalSales DESC
+ORDER BY TotalRevenue DESC
